@@ -78,3 +78,21 @@ model IndexerState {
   lastLedger    Int      @default(0)
   updatedAt     DateTime @updatedAt
 }
+
+model FailedItem {
+  id          String   @id @default(cuid())
+  itemType    String   // "transaction" | "event"
+  itemId      String   // tx hash or event id
+  ledger      Int
+  rawXdr      String?  // raw XDR that failed to decode
+  errorMsg    String
+  errorStack  String?
+  context     Json?    // extra context (topics, data, etc.)
+  retryCount  Int      @default(0)
+  dead        Boolean  @default(false)  // true = max retries exceeded
+  createdAt   DateTime @default(now())
+  lastTriedAt DateTime @default(now())
+
+  @@index([itemType, dead])
+  @@index([ledger])
+}

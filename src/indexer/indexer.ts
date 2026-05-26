@@ -37,7 +37,16 @@ async function processLedgerRange(start: number, end: number) {
       const txResult = await getTransaction(event.transactionHash).catch(() => null);
       const rawXdr = (txResult as any)?.envelopeXdr?.toXDR('base64') ?? '';
       const decoded = rawXdr
-        ? await decodeTransaction(rawXdr)
+        ? await decodeTransaction(rawXdr).catch(async (err) => {
+            await enqueueFailure({
+              itemType: 'transaction',
+              itemId: event.transactionHash,
+              ledger: event.ledger,
+              rawXdr,
+              error: err,
+            });
+            return { contractAddress: event.contractId, functionName: null, functionArgs: null, humanReadable: null };
+          })
         : {
             contractAddress: event.contractId,
             functionName: null,
