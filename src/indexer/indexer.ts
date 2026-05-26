@@ -2,7 +2,8 @@ import WebSocket from 'ws';
 import { prisma } from '../db';
 import { config } from '../config';
 import { fetchEvents, getLatestLedger, getRpcWebsocketUrl, getTransaction } from './rpc';
-import { decodeTransaction, decodeEvent } from './decoder';
+import { decodeTransaction } from './decoder';
+import { ingestEvents } from './eventIngestor';
 
 const BATCH = config.indexerBatchSize;
 
@@ -23,6 +24,7 @@ async function processLedgerRange(start: number, end: number) {
   console.log(`Indexing ledgers ${start} → ${end}`);
   const events = await fetchEvents(start, end);
 
+  // Index transactions first so the event ingestor can satisfy the FK constraint
   for (const event of events) {
     await prisma.contract.upsert({
       where: { address: event.contractId },
@@ -61,26 +63,11 @@ async function processLedgerRange(start: number, end: number) {
         },
       });
     }
-
-    const { eventType, decoded } = decodeEvent(event.topics, event.data);
-    await prisma.event.upsert({
-      where: { id: `${event.transactionHash}-${event.topics[0] ?? '0'}` },
-      update: {},
-      create: {
-        id: `${event.transactionHash}-${event.topics[0] ?? '0'}`,
-        transactionHash: event.transactionHash,
-        contractAddress: event.contractId,
-        eventType,
-        topics: event.topics,
-        data: { raw: event.data },
-        decoded: decoded as object,
-        ledger: event.ledger,
-        ledgerCloseTime: event.ledgerCloseTime,
-      },
-    });
   }
 
-  console.log(`Processed ${events.length} events in ledgers ${start}–${end}`);
+  // Delegate event extraction, decoding, and storage to the dedicated ingestor
+  const stored = await ingestEvents(start, end);
+  console.log(`Processed ${events.length} transactions, stored ${stored} events in ledgers ${start}–${end}`);
 }
 
 function sleep(ms: number) {
