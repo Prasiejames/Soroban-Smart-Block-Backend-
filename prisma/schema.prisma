@@ -166,6 +166,24 @@ model AmmPool {
   @@index([assetBAddress])
 }
 
+model VerificationJob {
+  id              String   @id @default(cuid())
+  contractAddress String?  // on-chain address to compare against
+  toolchain       String   @default("soroban-cli@0.9.4") // pinned toolchain version
+  status          String   @default("pending") // pending | compiling | verified | failed
+  uploadedHash    String?  // SHA-256 of uploaded archive
+  onChainWasmHash String?  // hash fetched from RPC
+  compiledWasmHash String? // hash of compiled output
+  matched         Boolean?
+  errorMsg        String?
+  logs            String?  // compiler stdout/stderr
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([contractAddress])
+  @@index([status])
+}
+
 model FailedItem {
   id          String   @id @default(cuid())
   itemType    String   // "transaction" | "event"

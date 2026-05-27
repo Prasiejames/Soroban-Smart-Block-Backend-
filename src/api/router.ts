@@ -6,6 +6,7 @@ import { walletRouter } from './wallets';
 import { tokenRouter } from './tokens';
 import { renderRouter } from './render';
 import { simulateRouter } from './simulate';
+import { verifyRouter } from './verify';
 import { dexRouter } from './dex';
 import { nftRouter } from './nft';
 
@@ -18,5 +19,6 @@ router.use('/wallets', walletRouter);
 router.use('/tokens', tokenRouter);
 router.use('/render', renderRouter);
 router.use('/simulate', simulateRouter);
+router.use('/verify', verifyRouter);
 router.use('/dex', dexRouter);
 router.use('/nft', nftRouter);
