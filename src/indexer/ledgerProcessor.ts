@@ -3,6 +3,7 @@ import { fetchEvents, getTransaction } from './rpc';
 import { decodeTransaction } from './decoder';
 import { ingestEvents } from './eventIngestor';
 import { enqueueFailure } from './errorQueue';
+import { barrierUpsertLedger, barrierUpsertContract, barrierUpsertTransaction } from './writeBarrier';
 
 /**
  * Fetch, decode, and persist all transactions and events for [start, end].
@@ -14,22 +15,9 @@ export async function processLedgerRange(start: number, end: number): Promise<vo
   const events = await fetchEvents(start, end);
 
   for (const event of events) {
-    // Upsert the Ledger row before writing transactions/events (FK constraint)
-    await prisma.ledger.upsert({
-      where: { sequence: event.ledgerSequence },
-      update: {},
-      create: {
-        sequence: event.ledgerSequence,
-        hash: '',               // hash not available from event stream; filled in if known
-        closeTime: event.ledgerCloseTime,
-      },
-    });
-
-    await prisma.contract.upsert({
-      where: { address: event.contractId },
-      update: {},
-      create: { address: event.contractId },
-    });
+    // Serialised upserts — prevents duplicate-key races from parallel workers
+    await barrierUpsertLedger(event.ledgerSequence, event.ledgerCloseTime);
+    await barrierUpsertContract(event.contractId);
 
     const existingTx = await prisma.transaction.findUnique({ where: { hash: event.transactionHash } });
     if (!existingTx) {
@@ -48,22 +36,18 @@ export async function processLedgerRange(start: number, end: number): Promise<vo
           })
         : { contractAddress: event.contractId, functionName: null, functionArgs: null, humanReadable: null };
 
-      await prisma.transaction.upsert({
-        where: { hash: event.transactionHash },
-        update: {},
-        create: {
-          hash: event.transactionHash,
-          ledgerSequence: event.ledgerSequence,
-          ledgerCloseTime: event.ledgerCloseTime,
-          sourceAccount: (txResult as any)?.sourceAccount ?? 'unknown',
-          contractAddress: decoded.contractAddress,
-          functionName: decoded.functionName,
-          functionArgs: decoded.functionArgs as object ?? undefined,
-          rawXdr,
-          status: (txResult as any)?.status === 'SUCCESS' ? 'success' : 'failed',
-          humanReadable: decoded.humanReadable,
-          feeCharged: String((txResult as any)?.feeCharged ?? ''),
-        },
+      await barrierUpsertTransaction(event.transactionHash, {
+        hash: event.transactionHash,
+        ledgerSequence: event.ledgerSequence,
+        ledgerCloseTime: event.ledgerCloseTime,
+        sourceAccount: (txResult as any)?.sourceAccount ?? 'unknown',
+        contractAddress: decoded.contractAddress,
+        functionName: decoded.functionName,
+        functionArgs: decoded.functionArgs as object ?? undefined,
+        rawXdr,
+        status: (txResult as any)?.status === 'SUCCESS' ? 'success' : 'failed',
+        humanReadable: decoded.humanReadable,
+        feeCharged: String((txResult as any)?.feeCharged ?? ''),
       });
     }
   }
