@@ -43,8 +43,26 @@ model Contract {
 
   transactions Transaction[]
   events       Event[]
+  wasmUpgrades WasmUpgradeHistory[]
 
   @@index([address])
+}
+
+// WASM bytecode upgrade history for contract version lineage
+model WasmUpgradeHistory {
+  id              String   @id @default(cuid())
+  contractAddress String
+  previousHash    String?  // hash before upgrade (null for initial deployment)
+  newHash         String   // hash after upgrade
+  ledgerSequence  Int      // ledger where upgrade occurred
+  ledgerCloseTime DateTime // timestamp of upgrade
+  transactionHash String?  // tx that triggered the upgrade
+  createdAt       DateTime @default(now())
+
+  contract Contract @relation(fields: [contractAddress], references: [address])
+
+  @@index([contractAddress, ledgerSequence])
+  @@index([ledgerSequence])
 }
 
 model Transaction {
@@ -126,6 +144,40 @@ model EventDefinition {
 
   @@unique([contractAddress, topicSymbol])
   @@index([contractAddress])
+}
+
+// Privacy-shielded transfer tracking for zero-knowledge privacy pools
+model ShieldedTransfer {
+  id              String   @id @default(cuid())
+  transactionHash String
+  contractAddress String   // privacy pool contract
+  fromAddress     String?  // null if shielded
+  toAddress       String?  // null if shielded
+  amount          String?  // null if confidential
+  isConfidential   Boolean  @default(true)
+  ledgerSequence  Int
+  ledgerCloseTime DateTime
+  createdAt       DateTime @default(now())
+
+  @@index([transactionHash])
+  @@index([contractAddress, ledgerSequence])
+}
+
+// ZKP verification event tracking
+model ZkpVerificationEvent {
+  id              String   @id @default(cuid())
+  transactionHash String
+  contractAddress String   // ZKP verifier contract
+  proofType       String   // snark | stark | groth16 | etc
+  publicInputHash String   // hash of public inputs
+  verificationResult String // verified | failed
+  certaintyPercent Float?   // cryptographic certainty level
+  ledgerSequence  Int
+  ledgerCloseTime DateTime
+  createdAt       DateTime @default(now())
+
+  @@index([transactionHash])
+  @@index([contractAddress, ledgerSequence])
 }
 
 model IndexerState {
