@@ -43,6 +43,7 @@ model Contract {
 
   transactions Transaction[]
   events       Event[]
+  sessionAuthorizations SessionAuthorization[]
 
   @@index([address])
 }
@@ -139,7 +140,7 @@ model SessionAuthorization {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  contract Contract? @relation(fields: [contractAddress], references: [address])
+  contract Contract? @relation(fields: [contractAddress], references: [address], name: "SessionAuthorizations")
 
   @@index([contractAddress])
   @@index([hotSigner])
