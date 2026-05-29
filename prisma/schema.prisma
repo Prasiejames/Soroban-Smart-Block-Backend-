@@ -593,6 +593,25 @@ model VolumeAlert {
   @@index([zScore])
 }
 
+// #168: Account activation records for XLM SAC transfers to unfunded addresses
+model AccountActivation {
+  id              String   @id @default(cuid())
+  destination     String                        // G-address of the recipient
+  sacAddress      String                        // C-address of the XLM SAC contract
+  transactionHash String                        // originating transaction
+  ledgerSequence  Int
+  ledgerCloseTime DateTime
+  amountStroops   String                        // transfer amount in stroops (i128 as string)
+  previousStatus  String   @default("Unfunded Key")
+  newStatus       String   @default("Active Base Wallet Natively Initialized")
+  createdAt       DateTime @default(now())
+
+  @@unique([transactionHash, destination])
+  @@index([destination])
+  @@index([sacAddress])
+  @@index([ledgerSequence])
+}
+
 // i18n translation dictionary
 model TranslationKey {
   id              String   @id @default(cuid())
