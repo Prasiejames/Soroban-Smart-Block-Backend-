@@ -131,6 +131,23 @@ export async function getTransaction(hash: string) {
   return retry(() => rpc.getTransaction(hash));
 }
 
+/**
+ * Fetch a transaction from Horizon REST API (fallback for RPC NOT_FOUND).
+ * Maps Horizon fields to the same shape used by the RPC result.
+ */
+export async function getTransactionFromHorizon(hash: string) {
+  const axios = (await import('axios')).default;
+  const { data } = await axios.get(`${config.horizonUrl}/transactions/${hash}`);
+  return {
+    status: data.successful ? 'SUCCESS' : 'FAILED',
+    sourceAccount: data.source_account as string,
+    feeCharged: String(data.fee_charged ?? ''),
+    envelopeXdr: {
+      toXDR: (enc: string) => enc === 'base64' ? data.envelope_xdr : data.envelope_xdr,
+    },
+  };
+}
+
 export function getRpcWebsocketUrl(): string {
   return config.stellarRpcWsUrl;
 }

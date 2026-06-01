@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 import { prismaWrite as prisma } from '../db';
 import { config } from '../config';
-import { fetchEvents, getLatestLedger, getRpcWebsocketUrl, getTransaction, type LedgerEvent } from './rpc';
+import { fetchEvents, getLatestLedger, getRpcWebsocketUrl, getTransaction, getTransactionFromHorizon, type LedgerEvent } from './rpc';
 import { decodeTransaction, decodeEvent } from './decoder';
 
 const BATCH = config.indexerBatchSize;
@@ -41,7 +41,8 @@ async function processLedgerRange(start: number, end: number) {
 
     const existingTx = await prisma.transaction.findUnique({ where: { hash: event.transactionHash } });
     if (!existingTx) {
-      const txResult = await getTransaction(event.transactionHash).catch(() => null);
+      const txResult = await getTransaction(event.transactionHash)
+        .catch(() => getTransactionFromHorizon(event.transactionHash).catch(() => null));
       const rawXdr = (txResult as any)?.envelopeXdr?.toXDR('base64') ?? '';
       const decoded = rawXdr
         ? await decodeTransaction(rawXdr)
