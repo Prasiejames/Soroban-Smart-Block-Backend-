@@ -760,6 +760,131 @@ model TaxExportJob {
   @@index([status])
 }
 
+// ─── Threat Intelligence Platform ────────────────────────────────────────────
+
+// External vulnerability / feed source registration
+model VulnerabilitySource {
+  id          String   @id @default(cuid())
+  name        String   @unique  // "NVD_CVE" | "GHSA" | "ON_CHAIN" | "COMMUNITY"
+  sourceType  String            // "cve" | "ghsa" | "onchain" | "manual"
+  feedUrl     String?
+  enabled     Boolean  @default(true)
+  lastFetchAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  advisories  ThreatAdvisory[]
+}
+
+// Core security advisory record
+model ThreatAdvisory {
+  id                String   @id @default(cuid())
+  title             String
+  description       String
+  severity          String   // "critical" | "high" | "medium" | "low" | "info"
+  cvssScore         Float?
+  cveId             String?  @unique
+  ghsaId            String?  @unique
+  affectedContracts String[] // Soroban contract addresses
+  affectedChains    String[] // "stellar" | "ethereum" | etc.
+  mitigations       String[] // free-text recommendations
+  status            String   @default("open") // "open" | "under_review" | "resolved" | "disputed"
+  publishedAt       DateTime?
+  resolvedAt        DateTime?
+  sourceId          String?
+  submittedBy       String?  // user/api-key for manual submissions
+  externalUrl       String?
+  tags              String[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  source       VulnerabilitySource? @relation(fields: [sourceId], references: [id])
+  correlations ThreatCorrelation[]
+  reviews      ThreatReview[]
+  comments     ThreatComment[]
+
+  @@index([severity])
+  @@index([status])
+  @@index([cveId])
+  @@index([ghsaId])
+  @@index([createdAt])
+}
+
+// Cross-chain / cross-source deduplication link
+model ThreatCorrelation {
+  id           String   @id @default(cuid())
+  advisoryId   String
+  relatedId    String   // another ThreatAdvisory id
+  relationship String   // "duplicate" | "related" | "supercedes"
+  confidence   Float    @default(1.0) // 0-1
+  createdAt    DateTime @default(now())
+
+  advisory     ThreatAdvisory @relation(fields: [advisoryId], references: [id])
+
+  @@unique([advisoryId, relatedId])
+  @@index([advisoryId])
+  @@index([relatedId])
+}
+
+// Role-based review workflow entry
+model ThreatReview {
+  id         String   @id @default(cuid())
+  advisoryId String
+  reviewerKey String  // API key / user id
+  role        String  // "analyst" | "admin"
+  decision    String  // "approve" | "reject" | "escalate"
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  advisory    ThreatAdvisory @relation(fields: [advisoryId], references: [id])
+
+  @@index([advisoryId])
+  @@index([reviewerKey])
+}
+
+// Community comment thread on an advisory
+model ThreatComment {
+  id         String   @id @default(cuid())
+  advisoryId String
+  authorKey  String
+  body       String
+  createdAt  DateTime @default(now())
+
+  advisory   ThreatAdvisory @relation(fields: [advisoryId], references: [id])
+
+  @@index([advisoryId])
+}
+
+// Push subscription (email / Slack / Discord / Telegram)
+model TipSubscription {
+  id        String   @id @default(cuid())
+  channel   String   // "email" | "slack" | "discord" | "telegram"
+  target    String   // email address / webhook url / chat id
+  filters   Json?    // { severity: ["critical","high"], tags: [] }
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([channel, target])
+  @@index([channel])
+  @@index([active])
+}
+
+// Outbound webhook endpoint registration
+model TipWebhook {
+  id        String   @id @default(cuid())
+  url       String   @unique
+  secret    String   // HMAC signing secret
+  events    String[] // ["advisory.created","advisory.updated","advisory.resolved"]
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+}
+
+// ─── End Threat Intelligence Platform ────────────────────────────────────────
+
 // Webhook subscriptions — developer-registered URLs that receive event payloads
 model WebhookSubscription {
   id              String   @id @default(cuid())
