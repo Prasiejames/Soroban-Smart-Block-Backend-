@@ -2197,3 +2197,168 @@ model UsageRecord {
 }
 
 // ─── End Developer API Console & Key Management ───────────────────────────────
+
+// ─── Soroban Temporal Orchestrator (Issue #310) ───────────────────────────────
+
+enum TimerType {
+  TIMELOCK
+  VESTING
+  DEADLINE
+  COOLDOWN
+  RECURRING
+  TIME_WEIGHTED
+  MULTI_STAGE
+  ABSOLUTE
+}
+
+enum TimerStatus {
+  PENDING
+  ACTIVE
+  EXECUTED
+  EXPIRED
+  CANCELLED
+  FAILED
+}
+
+model ScheduledOperation {
+  id              String      @id @default(cuid())
+  contractAddress String      @map("contract_address")
+  timerType       TimerType   @map("timer_type")
+  status          TimerStatus
+  functionName    String      @map("function_name")
+  description     String?
+  triggerTime     DateTime    @map("trigger_time")
+  windowStart     DateTime?   @map("window_start")
+  windowEnd       DateTime?   @map("window_end")
+  intervalSeconds Int?        @map("interval_seconds")
+  recurrenceCount Int?        @map("recurrence_count")
+  eventsExecuted  Int         @default(0) @map("events_executed")
+  parameters      Json?
+  sourceTx        String?     @map("source_tx")
+  createdBy       String?     @map("created_by")
+  detectedAt      DateTime    @map("detected_at")
+  lastExecutedAt  DateTime?   @map("last_executed_at")
+  nextTriggerAt   DateTime?   @map("next_trigger_at")
+
+  @@index([contractAddress])
+  @@index([timerType])
+  @@index([status])
+  @@index([nextTriggerAt])
+  @@index([triggerTime])
+  @@map("scheduled_operations")
+}
+
+model VestingSchedule {
+  id               String    @id @default(cuid())
+  contractAddress  String    @map("contract_address")
+  tokenAddress     String    @map("token_address")
+  tokenSymbol      String?   @map("token_symbol")
+  beneficiary      String
+  totalAmount      Decimal   @map("total_amount")
+  cliffDate        DateTime? @map("cliff_date")
+  cliffAmount      Decimal?  @map("cliff_amount")
+  startDate        DateTime  @map("start_date")
+  endDate          DateTime  @map("end_date")
+  vestingType      String    @map("vesting_type")
+  periodSeconds    Int?      @map("period_seconds")
+  amountPerPeriod  Decimal?  @map("amount_per_period")
+  periodsTotal     Int?      @map("periods_total")
+  nextUnlockDate   DateTime? @map("next_unlock_date")
+  nextUnlockAmount Decimal?  @map("next_unlock_amount")
+  totalUnlocked    Decimal   @default(0) @map("total_unlocked")
+  totalClaimed     Decimal   @default(0) @map("total_claimed")
+  status           String
+  sourceTx         String?   @map("source_tx")
+  detectedAt       DateTime  @map("detected_at")
+
+  @@index([beneficiary])
+  @@index([contractAddress])
+  @@index([nextUnlockDate])
+  @@index([status])
+  @@map("vesting_schedules")
+}
+
+model GovernanceTimelock {
+  id              String    @id @default(cuid())
+  contractAddress String    @map("contract_address")
+  proposalId      String?   @map("proposal_id")
+  title           String?
+  description     String?
+  proposer        String
+  executor        String?
+  targets         Json
+  values          Json
+  calldatas       Json
+  operationHash   String?   @map("operation_hash")
+  queuedAt        DateTime  @map("queued_at")
+  minDelay        Int       @map("min_delay")
+  executionTime   DateTime  @map("execution_time")
+  expiryTime      DateTime? @map("expiry_time")
+  status          String
+  executedTx      String?   @map("executed_tx")
+  cancelledBy     String?   @map("cancelled_by")
+  gracePeriod     Int?      @map("grace_period")
+
+  @@index([contractAddress])
+  @@index([status])
+  @@index([executionTime])
+  @@map("governance_timelocks")
+}
+
+model CronJob {
+  id              String    @id @default(cuid())
+  contractAddress String    @map("contract_address")
+  cronExpression  String    @map("cron_expression")
+  functionName    String    @map("function_name")
+  functionArgs    Json      @map("function_args")
+  description     String?
+  lastRunAt       DateTime? @map("last_run_at")
+  nextRunAt       DateTime? @map("next_run_at")
+  totalRuns       Int       @default(0) @map("total_runs")
+  successfulRuns  Int       @default(0) @map("successful_runs")
+  failedRuns      Int       @default(0) @map("failed_runs")
+  maxRuns         Int?      @map("max_runs")
+  enabled         Boolean   @default(true)
+  createdBy       String?   @map("created_by")
+  createdAt       DateTime  @map("created_at")
+
+  executions CronExecution[]
+
+  @@index([contractAddress])
+  @@index([nextRunAt])
+  @@map("cron_jobs")
+}
+
+model CronExecution {
+  id           String   @id @default(cuid())
+  cronJobId    String   @map("cron_job_id")
+  executedAt   DateTime @map("executed_at")
+  success      Boolean
+  txHash       String?  @map("tx_hash")
+  errorMessage String?  @map("error_message")
+  gasUsed      Int?     @map("gas_used")
+  duration     Int?
+
+  cronJob CronJob @relation(fields: [cronJobId], references: [id])
+
+  @@index([cronJobId, executedAt(sort: Desc)])
+  @@map("cron_executions")
+}
+
+model TimerAlert {
+  id            String   @id @default(cuid())
+  scheduledOpId String?  @map("scheduled_op_id")
+  alertType     String   @map("alert_type")
+  severity      String
+  title         String
+  message       String
+  triggerTime   DateTime @map("trigger_time")
+  delivered     Boolean  @default(false)
+  acknowledged  Boolean  @default(false)
+
+  @@index([scheduledOpId])
+  @@index([triggerTime])
+  @@map("timer_alerts")
+}
+
+// ─── End Soroban Temporal Orchestrator ────────────────────────────────────────
