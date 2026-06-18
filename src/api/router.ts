@@ -36,6 +36,8 @@ import { emergencyBaseRouter } from './emergency-router';
 import { stellarRouter } from './stellar';
 import { privacyRouter } from './privacy';
 import { mevRouter } from './mev';
+import { developerRouter } from './developer/router';
+import { scheduleRouter } from './schedule';
 
 export const router = Router();
 
@@ -75,3 +77,5 @@ router.use('/emergency', emergencyBaseRouter);
 router.use('/stellar', stellarRouter);
 router.use('/privacy', privacyRouter);
 router.use('/mev', mevRouter);
+router.use('/developer', developerRouter);
+router.use('/schedule', scheduleRouter);
