@@ -31,6 +31,9 @@ import { startPrivacyDetector } from './indexer/privacy-background-detector';
 import { startComposabilityIndexer } from './indexer/composability-indexer';
 import { attachPrivacyWebSocket } from './ws/privacyBroadcaster';
 import { attachComposabilityWebSocket } from './ws/composabilityBroadcaster';
+import { attachArbitrageWebSocket } from './ws/arbitrageBroadcaster';
+import { startArbitrageScanner } from './indexer/arbitrage-scanner';
+import { startPoolPriceMonitor } from './indexer/pool-price-monitor';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './logger';
 import { feedOrchestrator } from './feed/orchestrator';
@@ -110,6 +113,20 @@ async function main() {
   attachWebSocketServer(httpServer);
   attachPrivacyWebSocket(httpServer);
   attachComposabilityWebSocket(httpServer);
+  attachArbitrageWebSocket(httpServer);
+
+  if (!process.env.DISABLE_INDEXER) {
+    try {
+      startPoolPriceMonitor();
+    } catch (err) {
+      logger.warn('Pool price monitor failed to start', { error: String(err) });
+    }
+    try {
+      startArbitrageScanner();
+    } catch (err) {
+      logger.warn('Arbitrage scanner failed to start', { error: String(err) });
+    }
+  }
 
   // Initialize Feed Orchestrator with WebSocket support
   await feedOrchestrator.initialize(httpServer);
