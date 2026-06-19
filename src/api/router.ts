@@ -42,7 +42,7 @@ import feedRouter from './feed';
 import backfillRouter from './backfill';
 import marketRouter from './market';
 import feedSSERouter from './feedSSE';
-
+import { predictRouter } from './predict';
 export const router = Router();
 
 router.use('/transactions', transactionRouter);
@@ -88,3 +88,4 @@ router.use('/feed', feedRouter);
 router.use('/feed/backfill', backfillRouter);
 router.use('/feed/sse', feedSSERouter);
 router.use('/market', marketRouter);
+router.use('/predict', predictRouter);
