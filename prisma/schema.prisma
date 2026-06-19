@@ -2498,3 +2498,150 @@ model MarketDataSnapshot {
 }
 
 // ─── End Data Mesh Platform ─────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────
+// 🔮 Predictive Analytics & Forecasting Engine
+// ────────────────────────────────────────────────────────────────────────
+
+model FeatureDefinition {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  category    String?
+  expression  String?
+  granularity String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  values      FeatureValue[]
+
+  @@map("feature_definitions")
+}
+
+model FeatureValue {
+  id          BigInt   @id @default(autoincrement())
+  featureId   String
+  timestamp   DateTime
+  value       Float
+  blockNumber BigInt?
+
+  feature     FeatureDefinition @relation(fields: [featureId], references: [id])
+
+  @@unique([featureId, timestamp])
+  @@index([timestamp])
+  @@map("feature_values")
+}
+
+model ForecastMetric {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  models      ModelRegistry[]
+
+  @@map("forecast_metrics")
+}
+
+model ModelRegistry {
+  id                      String   @id @default(uuid())
+  modelName               String
+  modelVersion            String
+  modelType               String?
+  metricId                String?
+  parameters              Json?
+  features                Json?
+  trainingDate            DateTime?
+  trainingDurationSeconds Int?
+  metrics                 Json?
+  artifactPath            String?
+  status                  String?
+  createdAt               DateTime @default(now())
+
+  metric                  ForecastMetric? @relation(fields: [metricId], references: [id])
+  accuracies              PredictionAccuracy[]
+
+  @@map("model_registry")
+}
+
+model PredictionAccuracy {
+  id              BigInt   @id @default(autoincrement())
+  modelId         String
+  predictionId    String?
+  metric          String
+  granularity     String?
+  predictedValue  Float?
+  actualValue     Float?
+  error           Float?
+  absoluteError   Float?
+  percentageError Float?
+  timestamp       DateTime
+  createdAt       DateTime @default(now())
+
+  model           ModelRegistry @relation(fields: [modelId], references: [id])
+
+  @@index([modelId, timestamp])
+  @@map("prediction_accuracy")
+}
+
+model PredictionScenario {
+  id              String   @id @default(uuid())
+  baseForecastId  String?
+  scenarioName    String   @unique
+  perturbations   Json
+  horizon         Int
+  createdAt       DateTime @default(now())
+
+  @@map("prediction_scenarios")
+}
+
+model ExternalDataSource {
+  id                  String   @id @default(uuid())
+  name                String   @unique
+  type                String?
+  baseUrl             String?
+  apiKeyRequired      Boolean  @default(false)
+  rateLimitPerMinute  Int?
+  enabled             Boolean  @default(true)
+  createdAt           DateTime @default(now())
+
+  dataPoints          ExternalDataPoint[]
+
+  @@map("external_data_sources")
+}
+
+model ExternalDataPoint {
+  id          BigInt   @id @default(autoincrement())
+  sourceId    String
+  metricName  String
+  value       Float
+  timestamp   DateTime
+  metadata    Json?
+
+  source      ExternalDataSource @relation(fields: [sourceId], references: [id])
+
+  @@unique([sourceId, metricName, timestamp])
+  @@index([timestamp])
+  @@map("external_data_points")
+}
+
+model PredictiveAlertRule {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  metric          String
+  condition       String   // e.g. ">"
+  threshold       Float
+  horizonDays     Int
+  action          String?  // "email", "webhook"
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  @@map("predictive_alert_rules")
+}
+
+model PredictiveApiKey {
+  id              String   @id @default(uuid())
+  key             String   @unique
+  tier            String   @default("free") // "free", "pro", "enterprise"
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  lastUsedAt      DateTime?
+
+  @@map("predictive_api_keys")
+}
