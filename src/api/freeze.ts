@@ -7,271 +7,286 @@
  */
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { prismaWrite as prisma } from '../db';
+import { invalidateFreezeCache } from '../indexer/freeze-scanner';
 
 export const freezeRouter = Router();
 
-// ── GET / ─────────────────────────────────────────────────────────────────────
+// Middleware to mock admin auth if needed
+const adminAuth = (req: Request, res: Response, next: any) => {
+  const actor = req.headers['x-admin-token'] || req.headers['x-actor'];
+  if (!actor) {
+    return res.status(401).json({ error: 'Unauthorized: admin token required' });
+  }
+  (req as any).actor = actor;
+  next();
+};
 
-/**
- * @swagger
- * /freeze:
- *   get:
- *     summary: Freeze service overview
- *     tags: [Freeze]
- *     responses:
- *       200:
- *         description: Service info
- */
-freezeRouter.get('/', (_req: Request, res: Response) => {
-  res.json({
-    service: 'Freeze API',
-    description: 'Account and asset freeze management for regulatory compliance on Stellar',
-    endpoints: [
-      'GET  /freeze',
-      'GET  /freeze/keys',
-      'GET  /freeze/accounts/:address',
-      'POST /freeze/accounts/:address',
-      'DELETE /freeze/accounts/:address',
-      'GET  /freeze/assets/:assetCode',
-      'GET  /freeze/history',
-      'GET  /freeze/stats',
-    ],
+const getActor = (req: Request) => (req as any).actor || 'unknown';
+
+async function logAudit(actor: string, action: string, target: string, previousState: any, newState: any, reason?: string) {
+  await prisma.auditLog.create({
+    data: {
+      actor,
+      action,
+      target,
+      previousState: previousState ? JSON.stringify(previousState) : null,
+      newState: newState ? JSON.stringify(newState) : null,
+      reason,
+    }
   });
-});
+}
 
 // ── GET /keys ─────────────────────────────────────────────────────────────────
+freezeRouter.get('/keys', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(200, parseInt((req.query.limit as string) ?? '50', 10));
+    const offset = parseInt((req.query.offset as string) ?? '0', 10);
+    const active = req.query.active !== undefined ? req.query.active === 'true' : undefined;
+    const contractAddress = req.query.contractAddress as string;
 
-/**
- * @swagger
- * /freeze/keys:
- *   get:
- *     summary: List all active freeze keys/orders
- *     tags: [Freeze]
- *     responses:
- *       200:
- *         description: Active freeze orders
- */
-freezeRouter.get('/keys', (req: Request, res: Response) => {
-  const limit = Math.min(200, parseInt((req.query.limit as string) ?? '50', 10));
-  const status = (req.query.status as string) ?? 'active';
+    const where: any = {};
+    if (active !== undefined) where.active = active;
+    if (contractAddress) where.contractAddress = contractAddress;
 
-  res.json({
-    freezeOrders: [],
-    total: 0,
-    limit,
-    filter: { status },
-    message: 'No active freeze orders.',
-    fetchedAt: new Date().toISOString(),
-  });
-});
+    const keys = await prisma.frozenLedgerKey.findMany({
+      where,
+      take: limit,
+      skip: offset,
+      orderBy: { createdAt: 'desc' }
+    });
+    
+    const total = await prisma.frozenLedgerKey.count({ where });
 
-// ── GET /accounts/:address ─────────────────────────────────────────────────────
-
-/**
- * @swagger
- * /freeze/accounts/{address}:
- *   get:
- *     summary: Check freeze status for an account
- *     tags: [Freeze]
- *     parameters:
- *       - in: path
- *         name: address
- *         required: true
- *         schema: { type: string }
- *     responses:
- *       200:
- *         description: Freeze status
- */
-freezeRouter.get('/accounts/:address', (req: Request, res: Response) => {
-  const { address } = req.params;
-
-  res.json({
-    address,
-    frozen: false,
-    freezeOrders: [],
-    frozenAssets: [],
-    frozenSince: null,
-    reason: null,
-    orderedBy: null,
-  });
-});
-
-// ── POST /accounts/:address ────────────────────────────────────────────────────
-
-/**
- * @swagger
- * /freeze/accounts/{address}:
- *   post:
- *     summary: Apply a freeze order to an account
- *     tags: [Freeze]
- *     parameters:
- *       - in: path
- *         name: address
- *         required: true
- *         schema: { type: string }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [reason, authorizedBy]
- *             properties:
- *               reason: { type: string }
- *               authorizedBy: { type: string }
- *               assetCodes: { type: array, items: { type: string } }
- *               expiresAt: { type: string }
- *     responses:
- *       201:
- *         description: Freeze order created
- *       400:
- *         description: Validation error
- */
-freezeRouter.post('/accounts/:address', (req: Request, res: Response) => {
-  const schema = z.object({
-    reason: z.string().min(10),
-    authorizedBy: z.string().min(1),
-    assetCodes: z.array(z.string()).optional(),
-    expiresAt: z.string().datetime({ offset: true }).optional(),
-    legalReference: z.string().optional(),
-  });
-
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.flatten() });
+    res.json({ data: keys, total, limit, offset });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
-
-  const orderId = `freeze_${req.params.address.slice(0, 8)}_${Date.now()}`;
-
-  res.status(201).json({
-    orderId,
-    address: req.params.address,
-    ...parsed.data,
-    status: 'active',
-    createdAt: new Date().toISOString(),
-    message: 'Freeze order recorded. Apply to Stellar network to enforce.',
-  });
 });
 
-// ── DELETE /accounts/:address ──────────────────────────────────────────────────
-
-/**
- * @swagger
- * /freeze/accounts/{address}:
- *   delete:
- *     summary: Lift a freeze order for an account
- *     tags: [Freeze]
- *     parameters:
- *       - in: path
- *         name: address
- *         required: true
- *         schema: { type: string }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [authorizedBy, reason]
- *             properties:
- *               authorizedBy: { type: string }
- *               reason: { type: string }
- *     responses:
- *       200:
- *         description: Freeze lifted
- *       400:
- *         description: Validation error
- */
-freezeRouter.delete('/accounts/:address', (req: Request, res: Response) => {
-  const schema = z.object({
-    authorizedBy: z.string().min(1),
-    reason: z.string().min(5),
-  });
-
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.flatten() });
+// ── GET /keys/:id ─────────────────────────────────────────────────────────────
+freezeRouter.get('/keys/:id', async (req: Request, res: Response) => {
+  try {
+    const key = await prisma.frozenLedgerKey.findUnique({
+      where: { id: req.params.id }
+    });
+    if (!key) return res.status(404).json({ error: 'Key not found' });
+    res.json(key);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
-
-  res.json({
-    address: req.params.address,
-    ...parsed.data,
-    status: 'lifted',
-    liftedAt: new Date().toISOString(),
-  });
 });
 
-// ── GET /assets/:assetCode ─────────────────────────────────────────────────────
+// ── POST /keys ────────────────────────────────────────────────────────────────
+freezeRouter.post('/keys', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      ledgerKey: z.string(),
+      contractAddress: z.string().optional(),
+      reason: z.string().optional(),
+      metadata: z.record(z.any()).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-/**
- * @swagger
- * /freeze/assets/{assetCode}:
- *   get:
- *     summary: Get freeze status for all accounts holding an asset
- *     tags: [Freeze]
- *     parameters:
- *       - in: path
- *         name: assetCode
- *         required: true
- *         schema: { type: string }
- *     responses:
- *       200:
- *         description: Asset freeze info
- */
-freezeRouter.get('/assets/:assetCode', (req: Request, res: Response) => {
-  const { assetCode } = req.params;
+    const actor = getActor(req);
+    const { ledgerKey, contractAddress, reason, metadata } = parsed.data;
 
-  res.json({
-    assetCode: assetCode.toUpperCase(),
-    frozenAccounts: [],
-    totalFrozen: 0,
-    message: 'No accounts frozen for this asset.',
-  });
+    // Default frozenAtLedger to current max or 0, this should ideally come from network
+    const state = await prisma.indexerState.findUnique({ where: { id: 'singleton' }});
+    const frozenAtLedger = state?.lastLedger || 0;
+
+    const newKey = await prisma.frozenLedgerKey.create({
+      data: {
+        ledgerKey,
+        contractAddress,
+        frozenAtLedger,
+        frozenAtTime: new Date(),
+        reason,
+        frozenBy: actor,
+        metadata: metadata ? metadata : undefined,
+      }
+    });
+
+    invalidateFreezeCache();
+    await logAudit(actor, 'CREATE_FREEZE', newKey.id, null, newKey, reason);
+
+    res.status(201).json(newKey);
+  } catch (error: any) {
+    if (error.code === 'P2002') return res.status(409).json({ error: 'Key already frozen' });
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// ── GET /history ───────────────────────────────────────────────────────────────
+// ── PATCH /keys/:id ───────────────────────────────────────────────────────────
+freezeRouter.patch('/keys/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      reason: z.string().optional(),
+      active: z.boolean().optional(),
+      metadata: z.record(z.any()).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-/**
- * @swagger
- * /freeze/history:
- *   get:
- *     summary: Get freeze/unfreeze event history
- *     tags: [Freeze]
- *     responses:
- *       200:
- *         description: Freeze event history
- */
-freezeRouter.get('/history', (req: Request, res: Response) => {
-  const limit = Math.min(200, parseInt((req.query.limit as string) ?? '50', 10));
+    const actor = getActor(req);
+    
+    const existing = await prisma.frozenLedgerKey.findUnique({ where: { id: req.params.id }});
+    if (!existing) return res.status(404).json({ error: 'Key not found' });
 
-  res.json({
-    events: [],
-    total: 0,
-    limit,
-    message: 'No freeze history found.',
-    fetchedAt: new Date().toISOString(),
-  });
+    const updated = await prisma.frozenLedgerKey.update({
+      where: { id: req.params.id },
+      data: parsed.data
+    });
+
+    if (parsed.data.active !== undefined) {
+      invalidateFreezeCache();
+    }
+    await logAudit(actor, 'UPDATE_FREEZE', updated.id, existing, updated, parsed.data.reason || 'Update');
+
+    res.json(updated);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// ── GET /stats ─────────────────────────────────────────────────────────────────
+// ── DELETE /keys/:id ──────────────────────────────────────────────────────────
+freezeRouter.delete('/keys/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const actor = getActor(req);
+    const reason = req.body.reason || 'Manual delete';
 
-/**
- * @swagger
- * /freeze/stats:
- *   get:
- *     summary: Get freeze statistics
- *     tags: [Freeze]
- *     responses:
- *       200:
- *         description: Freeze stats
- */
-freezeRouter.get('/stats', (_req: Request, res: Response) => {
-  res.json({
-    totalFreezeOrders: 0,
-    activeFreezes: 0,
-    liftedFreezes: 0,
-    frozenAccounts: 0,
-    frozenAssets: 0,
-    computedAt: new Date().toISOString(),
-  });
+    const existing = await prisma.frozenLedgerKey.findUnique({ where: { id: req.params.id }});
+    if (!existing) return res.status(404).json({ error: 'Key not found' });
+
+    await prisma.frozenLedgerKey.delete({ where: { id: req.params.id }});
+    
+    invalidateFreezeCache();
+    await logAudit(actor, 'DELETE_FREEZE', req.params.id, existing, null, reason);
+
+    res.json({ message: 'Deleted successfully' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── GET /violations ───────────────────────────────────────────────────────────
+freezeRouter.get('/violations', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(200, parseInt((req.query.limit as string) ?? '50', 10));
+    const offset = parseInt((req.query.offset as string) ?? '0', 10);
+    const severity = req.query.severity as string;
+
+    const where: any = {};
+    if (severity) where.severity = severity;
+
+    const violations = await prisma.freezeViolation.findMany({
+      where,
+      take: limit,
+      skip: offset,
+      orderBy: { createdAt: 'desc' }
+    });
+    
+    const total = await prisma.freezeViolation.count({ where });
+
+    res.json({ data: violations, total, limit, offset });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── GET /violations/:id ───────────────────────────────────────────────────────
+freezeRouter.get('/violations/:id', async (req: Request, res: Response) => {
+  try {
+    const violation = await prisma.freezeViolation.findUnique({
+      where: { id: req.params.id }
+    });
+    if (!violation) return res.status(404).json({ error: 'Violation not found' });
+    res.json(violation);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── PATCH /violations/:id ─────────────────────────────────────────────────────
+freezeRouter.patch('/violations/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      resolution: z.enum(['pending', 'resolved', 'false_positive']),
+      severity: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+      reason: z.string().optional()
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const actor = getActor(req);
+    
+    const existing = await prisma.freezeViolation.findUnique({ where: { id: req.params.id }});
+    if (!existing) return res.status(404).json({ error: 'Violation not found' });
+
+    const updated = await prisma.freezeViolation.update({
+      where: { id: req.params.id },
+      data: {
+        resolution: parsed.data.resolution,
+        ...(parsed.data.severity && { severity: parsed.data.severity }),
+        resolvedBy: actor,
+        resolvedAt: new Date()
+      }
+    });
+
+    await logAudit(actor, 'RESOLVE_VIOLATION', updated.id, existing, updated, parsed.data.reason || 'Resolution updated');
+
+    res.json(updated);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── GET /stats ────────────────────────────────────────────────────────────────
+freezeRouter.get('/stats', async (req: Request, res: Response) => {
+  try {
+    const [totalKeys, activeKeys, totalViolations, criticalViolations] = await Promise.all([
+      prisma.frozenLedgerKey.count(),
+      prisma.frozenLedgerKey.count({ where: { active: true } }),
+      prisma.freezeViolation.count(),
+      prisma.freezeViolation.count({ where: { severity: 'critical' } })
+    ]);
+
+    res.json({
+      totalKeys,
+      activeKeys,
+      totalViolations,
+      criticalViolations,
+      computedAt: new Date().toISOString()
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── GET /audit-log ────────────────────────────────────────────────────────────
+freezeRouter.get('/audit-log', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(200, parseInt((req.query.limit as string) ?? '50', 10));
+    const offset = parseInt((req.query.offset as string) ?? '0', 10);
+    const actor = req.query.actor as string;
+    const action = req.query.action as string;
+
+    const where: any = {};
+    if (actor) where.actor = actor;
+    if (action) where.action = action;
+
+    const logs = await prisma.auditLog.findMany({
+      where,
+      take: limit,
+      skip: offset,
+      orderBy: { timestamp: 'desc' }
+    });
+    
+    const total = await prisma.auditLog.count({ where });
+
+    res.json({ data: logs, total, limit, offset });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });

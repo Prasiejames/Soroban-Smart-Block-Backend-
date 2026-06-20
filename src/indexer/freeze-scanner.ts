@@ -105,16 +105,21 @@ export async function recordFreezeViolation(
   ledgerCloseTime: Date,
   frozenKeys: string[],
 ): Promise<void> {
+  const numKeys = frozenKeys.length;
+  const severity = numKeys > 10 ? 'critical' : numKeys > 5 ? 'high' : numKeys > 2 ? 'medium' : 'low';
+
   await Promise.all([
     prisma.freezeViolation.upsert({
       where: { transactionHash },
-      update: { frozenKeys },
+      update: { frozenKeys, severity },
       create: {
         transactionHash,
         contractAddress,
         ledgerSequence,
         ledgerCloseTime,
         frozenKeys,
+        severity,
+        resolution: 'pending',
       },
     }),
     prisma.transaction.updateMany({
@@ -122,6 +127,25 @@ export async function recordFreezeViolation(
       data: { freezeViolation: true },
     }),
   ]);
+
+  if (severity === 'critical') {
+    const webhookUrl = process.env.FREEZE_ALERT_WEBHOOK_URL;
+    if (webhookUrl) {
+      fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          alert: 'CRITICAL_FREEZE_VIOLATION',
+          transactionHash,
+          contractAddress,
+          frozenKeys,
+          ledgerSequence,
+        })
+      }).catch(err => console.error('[freeze-scanner] Failed to send alert webhook', err));
+    } else {
+      console.warn(`[freeze-scanner] CRITICAL VIOLATION DETECTED for tx ${transactionHash}`);
+    }
+  }
 }
 
 // ── Frozen key registry management ──────────────────────────────────────────

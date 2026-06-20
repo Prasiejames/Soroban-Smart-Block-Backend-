@@ -2812,3 +2812,56 @@ model PredictiveApiKey {
 
   @@map("predictive_api_keys")
 }
+
+// ─── CAP-0077: Consensus Asset-Freeze ─────────────────────────────────────────
+
+model FrozenLedgerKey {
+  id              String   @id @default(cuid())
+  ledgerKey       String   @unique
+  contractAddress String?
+  frozenAtLedger  Int
+  frozenAtTime    DateTime
+  reason          String?
+  active          Boolean  @default(true)
+  frozenBy        String?  // account that triggered the freeze
+  metadata        Json?    // extensible metadata
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([contractAddress])
+  @@index([active])
+  @@index([frozenAtLedger(sort: Desc)])
+}
+
+model FreezeViolation {
+  id              String   @id @default(cuid())
+  transactionHash String   @unique
+  contractAddress String?
+  ledgerSequence  Int
+  ledgerCloseTime DateTime
+  frozenKeys      Json
+  severity        String   // "low" | "medium" | "high" | "critical"
+  resolution      String?  // "pending" | "resolved" | "false_positive"
+  resolvedBy      String?
+  resolvedAt      DateTime?
+  createdAt       DateTime @default(now())
+
+  @@index([transactionHash])
+  @@index([severity])
+  @@index([resolvedAt])
+}
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  actor         String
+  action        String
+  target        String
+  previousState Json?
+  newState      Json?
+  reason        String?
+  timestamp     DateTime @default(now())
+
+  @@index([actor])
+  @@index([action])
+  @@index([target])
+}
