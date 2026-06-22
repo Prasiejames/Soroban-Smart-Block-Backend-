@@ -39,6 +39,12 @@ import { aaRouter } from './aa';
 import { complianceRouter } from './compliance';
 import { nlqRouter } from './nlq';
 
+// ── Pricing & Market Intelligence ──────────────────────────────────────────────
+import { marketRouter } from './market';
+import { tokenPricesRouter } from './token-prices';
+import { portfolioRouter } from './portfolio';
+import { alertsRouter } from './alerts';
+
 export const router = Router();
 
 // ── Core Stellar / Soroban ────────────────────────────────────────────────────
@@ -59,5 +65,8 @@ router.use('/protocol', protocolRouter);
 router.use('/aa', aaRouter);
 router.use('/compliance', complianceRouter);
 
-// ── Natural Language Query Interface (#328) ───────────────────────────────────
-router.use('/query', nlqRouter);
+// ── Token Pricing & Valuation ─────────────────────────────────────────────────
+router.use('/tokens', tokenPricesRouter);
+router.use('/market', marketRouter);
+router.use('/portfolio', portfolioRouter);
+router.use('/market/alerts', alertsRouter);

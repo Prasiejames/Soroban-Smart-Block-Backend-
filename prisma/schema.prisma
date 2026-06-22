@@ -2678,12 +2678,83 @@ model Token {
 }
 
 model TokenPrice {
-  id          String   @id @default(cuid())
-  tokenAddress String  @unique
-  priceUsd    Float?
-  symbol      String?
-  source      String?
-  createdAt   DateTime @default(now())
+  id              String    @id @default(cuid())
+  tokenAddress    String    @unique
+  priceUsd        Decimal   @default(0)
+  priceXlm        Decimal   @default(0)
+  source          String    @default("composite")
+  confidence      Float     @default(0)
+  volume24hUsd    Decimal?
+  volume24hXlm    Decimal?
+  marketCapUsd    Decimal?
+  fullyDilutedValuation Decimal?
+  circulatingSupply Decimal?
+  totalSupply     Decimal?
+  priceChange1h   Float?
+  priceChange24h  Float?
+  priceChange7d   Float?
+  twap1h          Decimal?
+  twap24h         Decimal?
+  liquidityUsd    Decimal?
+  updatedAt       DateTime  @updatedAt
+
+  @@index([updatedAt(sort: Desc)])
+  @@index([volume24hUsd(sort: Desc)])
+}
+
+model TokenPriceHistory {
+  id              String    @id @default(cuid())
+  tokenAddress    String
+  priceUsd        Decimal
+  priceXlm        Decimal
+  source          String
+  confidence      Float
+  volume24hUsd    Decimal?
+  marketCapUsd    Decimal?
+  timestamp       DateTime
+
+  @@index([tokenAddress, timestamp(sort: Desc)])
+  @@index([timestamp])
+}
+
+model TokenMarketData {
+  id              String    @id @default(cuid())
+  tokenAddress    String    @unique
+  symbol          String?
+  name            String?
+  decimals        Int?
+  totalSupply     Decimal?
+  circulatingSupply Decimal?
+  holderCount     Int       @default(0)
+  transferCount24h Int      @default(0)
+  uniqueSenders24h Int      @default(0)
+  uniqueReceivers24h Int    @default(0)
+  averageTransferValueUsd Decimal?
+  isStablecoin    Boolean   @default(false)
+  stablecoinPeg   String?
+  pegDeviation24h Float?
+  pegStabilityScore Float?
+  tags            String[]
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([holderCount(sort: Desc)])
+  @@index([transferCount24h(sort: Desc)])
+}
+
+model PriceAlert {
+  id              String    @id @default(cuid())
+  userId          String?
+  tokenAddress    String
+  alertType       String
+  threshold       String
+  timeWindow      String?
+  isActive        Boolean   @default(true)
+  lastTriggeredAt DateTime?
+  createdAt       DateTime   @default(now())
+
+  @@index([userId])
+  @@index([tokenAddress])
 }
 
 model VerifiableCredential {

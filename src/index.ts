@@ -23,6 +23,7 @@ import { cacheConnect } from './cache';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './logger';
 import { feedOrchestrator } from './feed/orchestrator';
+import { startPriceUpdater } from './services/pricing/price-updater';
 
 // Stub functions for features requiring missing Prisma schema models
 function attachPrivacyWebSocket(_server: unknown): void {
@@ -103,6 +104,14 @@ async function main() {
     } catch (err) {
       logger.warn('Arbitrage scanner failed to start', { error: String(err) });
     }
+  }
+
+  // Start Price Updater background service
+  try {
+    await startPriceUpdater();
+    logger.info('Price updater started');
+  } catch (err) {
+    logger.warn('Price updater failed to start', { error: String(err) });
   }
 
   // Initialize Feed Orchestrator with WebSocket support
